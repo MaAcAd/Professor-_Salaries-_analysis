@@ -1,0 +1,935 @@
+# ==============================================================================
+# ANÁLISIS DE SALARIOS DE PROFESORES UNIVERSITARIOS
+# AUTOR: María Aceituno Adrados
+# FECHA: Agosto 2025
+# ==============================================================================
+
+## 1. Carga de Librerías y Configuración Inicial
+# ------------------------------------------------------------------------------
+
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(glmnet)
+library(car)
+library(scales)
+
+# Se establece una semilla para la reproducibilidad de resultados aleatorios
+set.seed(123)
+# ------------------------------------------------------------------------------
+
+## 2. Carga y Primera Exploración del Dataset
+# -----------------------------------------------------------------------------
+salaries_df <- read_csv("data/salaries.csv", show_col_types = FALSE)
+output_text <- ""
+
+# Identificación y eliminación de la columna '...1' ya que parece ser
+# un índice.
+if ("...1" %in% names(salaries_df)) {
+  cat("\n--- Primeras filas de la columna '...1' ---\n")
+  print(head(salaries_df$`...1`))
+  cat("\n--- Resumen estadístico de la columna '...1' ---\n")
+  print(summary(salaries_df$`...1`))
+  salaries_df <- salaries_df %>%
+    select(-`...1`)
+  cat("\nColumna '...1' eliminada del dataset.\n")
+} else {
+  cat("\nLa columna '...1' no se encontró en el dataset. No se realizó \n")
+  cat("ninguna eliminación.\n")
+}
+cat("La columna '...1' es un índice numérico redundante. Su \n")
+cat("eliminación simplifica el dataset.\n")
+
+cat("\n--- Estructura del Dataset Después de Limpieza ---\n")
+print(str(salaries_df))
+
+cat("\n--- Resumen Estadístico del Dataset ---\n")
+print(summary(salaries_df))
+cat("El resumen muestra la distribución y valores atípicos. Por \n")
+cat("ejemplo, `salary` varía de 57800 a 231545. `yrs.since.phd` y \n")
+cat("`yrs.service` tienen un rango amplio. No hay valores `NA` \n")
+cat("aparentes.\n")
+# ------------------------------------------------------------------------------
+
+## 3. Preprocesamiento de Datos: Conversión de Tipos y Renombrado
+# ------------------------------------------------------------------------------
+# Se renombran las columnas
+salaries_df <- salaries_df %>%
+  rename(
+    Rango = rank,
+    Disciplina = discipline,
+    Años_Doctorado = yrs.since.phd,
+    Años_Servicio = yrs.service,
+    Sexo = sex,
+    Salario = salary
+  )
+
+# Se convierten las variables categóricas a tipo 'factor' para que R las
+# trate correctamente en los modelos estadísticos y visualizaciones.
+salaries_df <- salaries_df %>%
+  mutate(
+    Rango = as.factor(Rango),
+    Disciplina = as.factor(Disciplina),
+    Sexo = as.factor(Sexo)
+  )
+
+# --- Alias a las categorías de 'Rango' ---
+salaries_df <- salaries_df %>%
+  mutate(
+    Rango = dplyr::recode(Rango,
+      "Prof" = "Catedrático",
+      "AssocProf" = "Prof. Asociado",
+      "AsstProf" = "Prof. Asistente"
+    )
+  )
+
+# Se recodifica la columna 'Rango' como un factor ordenado con niveles
+# específicos.
+salaries_df$Rango <- factor(salaries_df$Rango,
+  levels = c("Prof. Asistente", "Prof. Asociado", "Catedrático")
+)
+
+# --- Alias a las categorías de 'Disciplina' ---
+salaries_df <- salaries_df %>%
+  mutate(
+    Disciplina = dplyr::recode(Disciplina,
+      "A" = "A",
+      "B" = "B"
+    )
+  )
+
+# --- Alias a las categorías de 'Sexo' ---
+salaries_df <- salaries_df %>%
+  mutate(
+    Sexo = dplyr::recode(Sexo,
+      "Male" = "Hombre",
+      "Female" = "Mujer"
+    )
+  )
+
+cat("\n--- Estructura del Dataset Después de Renombrar Columnas y Categorías \n")
+cat("Convertir a Factores con Alias \n")
+print(str(salaries_df))
+cat("Se renombran todas las columnas y categorías para mejorar la\n")
+cat("legibilidad de los gráficos y tablas, así como la comprensión general\n")
+cat("del dataset.\n")
+# ------------------------------------------------------------------------------
+
+## 4. Análisis Exploratorio de Datos (EDA) y Visualizaciones
+# ------------------------------------------------------------------------------
+### 4.1. Salario por Variables Categóricas (Rango, Disciplina, Sexo)
+
+cat("\n--- Distribución de Salarios por Rango del Profesor ---\n")
+ggplot(salaries_df, aes(x = Rango, y = Salario, fill = Rango)) +
+  geom_boxplot() +
+  labs(
+    title = "Distribución de Salarios por Rango del Profesor",
+    x = "Rango del Profesor",
+    y = "Salario"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+cat("El gráfico de cajas muestra una clara tendencia: el salario \n")
+cat("mediano y el rango de salarios aumentan significativamente con \n")
+cat("el rango del profesor, siendo 'Catedrático' el rango con \n")
+cat("salarios más altos y mayor variabilidad.\n")
+
+
+
+cat("\n--- Distribución de Salarios por Disciplina ---\n")
+ggplot(salaries_df, aes(x = Disciplina, y = Salario, fill = Disciplina)) +
+  geom_boxplot() +
+  labs(
+    title = "Distribución de Salarios por Disciplina",
+    x = "Disciplina",
+    y = "Salario"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+cat("La 'Disciplina B' parece tener un salario mediano ligeramente \n")
+cat("más alto y una dispersión que se extiende a valores más altos \n")
+cat("en comparación con la 'Disciplina A'.\n")
+
+
+cat("\n--- Distribución de Salarios por Sexo ---\n")
+ggplot(salaries_df, aes(x = Sexo, y = Salario, fill = Sexo)) +
+  geom_boxplot() +
+  labs(
+    title = "Distribución de Salarios por Sexo",
+    x = "Sexo",
+    y = "Salario"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+cat("Visualmente, los hombres parecen tener un salario mediano más \n")
+cat("alto y un rango intercuartílico superior en comparación con las \n")
+cat("mujeres, lo que sugiere una disparidad salarial.\n")
+
+
+### 4.2. Salario por Variables Numéricas (Años_Doctorado, Años_Servicio)
+# ------------------------------------------------------------------------------
+
+cat("\n--- Salario vs. Años desde el Doctorado ---\n")
+ggplot(salaries_df, aes(x = Años_Doctorado, y = Salario)) +
+  geom_point(alpha = 0.6, color = "darkblue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    title = "Salario vs. Años desde el Doctorado",
+    x = "Años desde el Doctorado",
+    y = "Salario"
+  ) +
+  theme_minimal()
+cat("Se observa una tendencia positiva general; a mayor \n")
+cat("'Años_Doctorado', tiende a haber un salario más alto, aunque \n")
+cat("con bastante dispersión. La línea de regresión lineal sugiere \n")
+cat("una relación positiva.\n")
+
+
+cat("\n--- Salario vs. Años de Servicio ---\n")
+ggplot(salaries_df, aes(x = Años_Servicio, y = Salario)) +
+  geom_point(alpha = 0.6, color = "darkgreen") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    title = "Salario vs. Años de Servicio",
+    x = "Años de Servicio",
+    y = "Salario"
+  ) +
+  theme_minimal()
+cat("Similar a 'Años_Doctorado', existe una relación positiva entre \n")
+cat("los años de servicio y el salario.\n")
+
+### 4.3. Distribución de Categorías Cruzadas (Sexo vs. Rango/Disciplina)
+# ------------------------------------------------------------------------------
+
+cat("\n--- Distribución de Sexos por Rango del Profesor (Proporción) ---\n")
+ggplot(salaries_df, aes(x = Rango, fill = Sexo)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Distribución de Sexos por Rango del Profesor (Proporción)",
+    x = "Rango del Profesor",
+    y = "Proporción",
+    fill = "Sexo"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::percent)
+cat("Existe una clara disparidad de género por rango. La proporción \n")
+cat("de mujeres disminuye drásticamente a medida que el rango del \n")
+cat("profesor aumenta, siendo 'Catedrático' predominantemente \n")
+cat("masculino. Esto podría ser un factor contribuyente a la brecha \n")
+cat("salarial observada por sexo.\n")
+
+
+cat("\n--- Distribución de Sexos por Disciplina (Proporción) ---\n")
+proportions_df <- salaries_df %>%
+  group_by(Disciplina, Sexo) %>%
+  summarise(count = n()) %>%
+  group_by(Disciplina) %>%
+  mutate(proportion = count / sum(count)) %>%
+  ungroup()
+
+ggplot(salaries_df, aes(x = Disciplina, fill = Sexo)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Distribución de Sexos por Disciplina (Proporción)",
+    x = "Disciplina",
+    y = "Proporción",
+    fill = "Sexo"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::percent) +
+  geom_text(data = proportions_df, 
+            aes(y = proportion, label = scales::percent(proportion)), 
+            position = position_stack(vjust = 0.5), 
+            color = "black", size = 3) 
+cat("La proporción de sexos entre las disciplinas 'A' y 'B' es muy \n")
+cat("similar, con diferencias apenas perceptibles visualmente. \n")
+
+cat("\n Interacción entre Disciplina y Sexo\n")
+cat("Se realiza un ANOVA de dos vías para evaluar si la combinación de disciplina y sexo tiene un efecto significativo en el salario.\n\n")
+
+interaction_model_disc_sex <- aov(Salario ~ Disciplina * Sexo, data = salaries_df)
+cat("Resumen del Modelo ANOVA\n\n")
+print(summary(interaction_model_disc_sex))
+
+p_value_disc_sex <- summary(interaction_model_disc_sex)[[1]][[4]][3]
+cat(paste0(
+  "El p-valor para la interacción 'Disciplina:Sexo' es de ", round(p_value_disc_sex, 4), ". ",
+  "Dado que este valor es mayor que 0.05, no hay evidencia estadística para afirmar ",
+  "que el efecto de la disciplina sobre el salario es diferente para hombres y mujeres. ",
+  "Esto sugiere que la brecha salarial, aunque presente, no se ve afectada de manera ",
+  "significativa por la disciplina de manera cruzada.\n"
+))
+
+ggplot(salaries_df, aes(x = Sexo, y = Salario, fill = Disciplina)) +
+  geom_boxplot() +
+  labs(
+    title = "Interacción entre Salario, Sexo y Disciplina",
+    x = "Sexo",
+    y = "Salario"
+  ) +
+  theme_minimal()
+
+
+cat("\nInteracción entre Rango y Sexo\n")
+cat("Se evalúa si el efecto del rango académico en el salario cambia según el sexo del profesor.\n\n")
+
+interaction_model_rank_sex <- aov(Salario ~ Rango * Sexo, data = salaries_df)
+cat("Resumen del Modelo ANOVA\n\n")
+print(summary(interaction_model_rank_sex))
+
+p_value_rank_sex <- summary(interaction_model_rank_sex)[[1]][[4]][3]
+cat(paste0(
+  "El p-valor para la interacción 'Rango:Sexo' es de ", round(p_value_rank_sex, 4), ". ",
+  "Dado que este valor es mayor que 0.05, no se observa una interacción significativa. ",
+  "El efecto del rango sobre el salario es similar para ambos sexos.\n"
+))
+
+ggplot(salaries_df, aes(x = Rango, y = Salario, fill = Sexo)) +
+  geom_boxplot() +
+  labs(
+    title = "Interacción entre Salario, Rango y Sexo",
+    x = "Rango Académico",
+    y = "Salario"
+  ) +
+  theme_minimal()
+
+
+cat("\nInteracción entre Disciplina y Años de Doctorado\n")
+cat("Se evalúa si el efecto de los años de experiencia desde el doctorado en el salario cambia según la disciplina.\n\n")
+
+interaction_model_disc_doc <- aov(Salario ~ Disciplina * Años_Doctorado, data = salaries_df)
+cat("Resumen del Modelo ANOVA\n\n")
+print(summary(interaction_model_disc_doc))
+
+p_value_disc_doc <- summary(interaction_model_disc_doc)[[1]][[4]][3]
+cat(paste0(
+  "El p-valor para la interacción 'Disciplina:Años_Doctorado' es de ", round(p_value_disc_doc, 4), ". ",
+  "Dado que este valor es mayor que 0.05, no se observa una interacción significativa. ",
+  "El impacto de los años de doctorado sobre el salario es similar en ambas disciplinas.\n"
+))
+
+ggplot(salaries_df, aes(x = Años_Doctorado, y = Salario, color = Disciplina)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Interacción entre Salario, Años de Doctorado y Disciplina",
+    x = "Años de Doctorado",
+    y = "Salario"
+  ) +
+  theme_minimal()
+
+
+cat("\nInteracción entre Disciplina y Años de Servicio\n")
+cat("Se evalúa si el efecto de los años de servicio en el salario cambia según la disciplina.\n\n")
+
+interaction_model_disc_serv <- aov(Salario ~ Disciplina * Años_Servicio, data = salaries_df)
+cat("Resumen del Modelo ANOVA\n\n")
+print(summary(interaction_model_disc_serv))
+
+p_value_disc_serv <- summary(interaction_model_disc_serv)[[1]][[4]][3]
+cat(paste0(
+  "El p-valor para la interacción 'Disciplina:Años_Servicio' es de ", round(p_value_disc_serv, 4), ". ",
+  "Dado que este valor es mayor que 0.05, no se observa una interacción significativa. ",
+  "El impacto de los años de servicio sobre el salario es similar en ambas disciplinas.\n"
+))
+
+ggplot(salaries_df, aes(x = Años_Servicio, y = Salario, color = Disciplina)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Interacción entre Salario, Años de Servicio y Disciplina",
+    x = "Años de Servicio",
+    y = "Salario"
+  ) +
+  theme_minimal()
+
+# ------------------------------------------------------------------------------
+## 5. Análisis de Correlaciones y ANOVA para la Inferencia
+# ------------------------------------------------------------------------------
+
+### 5.1. Correlación de Variables Numéricas
+# ------------------------------------------------------------------------------
+cat("\n--- Correlación Salario con Años Doctorado y Años de Servicio ---\n")
+correlation_phd <- cor(salaries_df$Salario,
+  salaries_df$Años_Doctorado,
+  use = "complete.obs"
+)
+correlation_service <- cor(salaries_df$Salario,
+  salaries_df$Años_Servicio,
+  use = "complete.obs"
+)
+print(paste("Correlación Salario - Años Doctorado:",
+  round(correlation_phd, 3)
+))
+print(paste("Correlación Salario - Años de Servicio:",
+  round(correlation_service, 3)
+))
+cat("Ambas variables 'Años_Doctorado' (correlación: 0.419) y \n")
+cat("'Años_Servicio' (correlación: 0.335) muestran una correlación \n")
+cat("positiva moderada con el salario. Esto indica que a mayor \n")
+cat("experiencia, mayor tiende a ser el salario. La correlación \n")
+cat("entre ellas mismas ('Años_Doctorado' y 'Años_Servicio') \n")
+cat("también es probablemente alta, lo que podría indicar \n")
+cat("multicolinealidad.\n")
+
+### 5.2. Análisis de Varianza (ANOVA) para Variables Categóricas
+# ------------------------------------------------------------------------------
+cat("\n--- ANOVA: Salario vs. Rango del Profesor ---\n")
+anova_rank <- aov(Salario ~ Rango, data = salaries_df)
+print(summary(anova_rank))
+cat("El p-valor extremadamente bajo (< 2e-16) indica que hay una \n")
+cat("diferencia estadísticamente altamente significativa en las \n")
+cat("medias de salarios entre los diferentes rangos de profesor. \n")
+cat("El rango es un predictor muy fuerte del salario.\n")
+
+cat("\n--- ANOVA: Salario vs. Disciplina ---\n")
+anova_discipline <- aov(Salario ~ Disciplina, data = salaries_df)
+print(summary(anova_discipline))
+cat("El p-valor (0.00181) es bajo e indica que hay una diferencia \n")
+cat("estadísticamente significativa en las medias de salarios entre \n")
+cat("las dos disciplinas. La disciplina es un predictor \n")
+cat("significativo del salario.\n")
+
+cat("\n--- ANOVA: Salario vs. Sexo ---\n")
+anova_sex <- aov(Salario ~ Sexo, data = salaries_df)
+print(summary(anova_sex))
+cat("El p-valor (0.00567) es bajo e indica que hay una diferencia \n")
+cat("estadísticamente significativa en las medias de salarios entre \n")
+cat("hombres y mujeres. El sexo es un predictor significativo del \n")
+cat("salario.\n")
+
+# ------------------------------------------------------------------------------
+
+## 6. Preparación de Datos para Modelado y División Train/Test
+# ------------------------------------------------------------------------------
+# Se añade una nueva columna 'log_Salario' al dataframe.
+salaries_df <- salaries_df %>%
+  mutate(log_Salario = log(Salario))
+
+cat("\n--- Estructura del Dataset con 'log_Salario' ---\n")
+print(str(salaries_df))
+cat("Se ha añadido la columna 'log_Salario' como transformación \n")
+cat("logarítmica del salario, para intentar mejorar la normalidad \n")
+cat("de los residuos y la linealidad del modelo.\n")
+
+# Se divide el DS
+num_total_filas <- nrow(salaries_df)
+num_train <- 317
+num_test <- num_total_filas - num_train
+
+if (num_train + num_test != num_total_filas) {
+  warning(paste("La suma de las instancias de entrenamiento (",
+    num_train, ") y prueba (", num_test,
+    ") no coincide con el total de filas del dataset (",
+    num_total_filas, ").\n"
+  ))
+}
+
+train_data <- salaries_df[1:num_train, ]
+test_data <- salaries_df[(num_train + 1):num_total_filas, ]
+
+cat("\n--- División de Datos: Entrenamiento y Prueba ---\n")
+print(paste("Tamaño del conjunto de entrenamiento:", nrow(train_data)))
+print(paste("Tamaño del conjunto de prueba:", nrow(test_data)))
+
+# Usamos 'log_Salario' como la variable respuesta.
+X_train <- model.matrix(log_Salario ~ . - Salario,
+  data = train_data
+)[, -1]
+Y_train <- train_data$log_Salario
+
+X_test <- model.matrix(log_Salario ~ . - Salario,
+  data = test_data
+)[, -1]
+Y_test <- test_data$log_Salario
+
+cat("Dimensiones de X_train:", dim(X_train), "\n")
+cat("Longitud de Y_train:", length(Y_train), "\n")
+cat("Dimensiones de X_test:", dim(X_test), "\n")
+cat("Longitud de Y_test:", length(Y_test), "\n")
+cat("Se establecen las dimensiones de las matrices 'X_train' \n")
+cat("(317 filas, 6 columnas) y 'X_test' (80 filas, 6 columnas). Las \n")
+cat("6 columnas corresponden a las variables predictoras transformadas \n")
+cat("('Rango' se convierte en 2 dummies, 'Disciplina' en 1 dummy, \n")
+cat("'Sexo' en 1 dummy, y 2 numéricas). La variable objetivo ahora \n")
+cat("es 'log_Salario'.\n")
+
+# ------------------------------------------------------------------------------
+
+## 7. Construcción de Modelos Lineales Predictivos
+# ------------------------------------------------------------------------------
+
+### 7.1. Modelo Lineal Múltiple Básico (lm())
+# ------------------------------------------------------------------------------
+cat("\n--- Construyendo Modelo Lineal Múltiple Básico (lm()) ---\n")
+# El modelo predice 'log_Salario'
+linear_model_base <- lm(log_Salario ~ .,
+  data = train_data %>% select(-Salario)
+) 
+
+print(summary(linear_model_base))
+
+cat("El 'summary()' muestra los coeficientes, p-valores, R-cuadrado \n")
+cat("ajustado, etc. Nos da una línea base de rendimiento y la \n")
+cat("significancia individual de los predictores en el modelo \n")
+cat("lineal sin regularización, ahora prediciendo 'log_Salario'.\n")
+cat(paste("  - El R-cuadrado ajustado es de",
+  round(summary(linear_model_base)$adj.r.squared, 4),
+  ", lo que indica que el modelo explica aproximadamente el",
+  round(summary(linear_model_base)$adj.r.squared * 100, 2),
+  "% de la varianza en el LOGARITMO del salario.\n"
+))
+
+
+cat("    - Los predictores significativos (p-valor < 0.05) son:\n")
+cat("      - 'Rango' (Prof. Asociado y Catedrático): Altamente significativos (p < 0.001), con un gran impacto positivo en el salario.\n")
+cat("      - 'DisciplinaB': Altamente significativo (p < 0.001), indicando un salario promedio mayor para la Disciplina B.\n")
+cat("      - 'Años_Servicio': Significativo (p < 0.01), pero con un impacto NEGATIVO en el salario. Este hallazgo es interesante y podría merecer una exploración más profunda, ya que en el EDA se observó una correlación positiva general. La multicolinealidad podría ser un factor aquí.\n")
+cat("    - Los predictores no significativos (p-valor >= 0.05) son:\n")
+cat("      - 'Años_Doctorado': No es estadísticamente significativo al nivel de 0.05 (p = 0.06852), aunque muestra una tendencia positiva en el salario.\n")
+cat("      - 'SexoHombre': NO es estadísticamente significativo (p = 0.24647) en este modelo LINEAL MÚLTIPLE, lo que sugiere que, una vez controladas las otras variables (rango, disciplina, años de experiencia), la diferencia salarial por sexo puede no ser linealmente evidente o estar absorbida por otros factores. Esto contrasta con el análisis ANOVA/T-test simple.\n")
+
+cat("\n--- Verificación de Multicolinealidad (VIF) para el Modelo LM \n")
+cat("Base ---\n")
+# Valores de VIF superiores a 5 o 10 indican un problema de multicolinealidad.
+vif_values <- vif(linear_model_base)
+print(vif_values)
+cat("Se observa que 'Años_Servicio' y 'Años_Doctorado' tienen VIFs elevados, confirmando la \n")
+cat("sospecha de multicolinealidad.\n")
+
+# ------------------------------------------------------------------------------
+
+### 7.2. Modelos Lineales Regularizados con glmnet (Ridge, Lasso, Elastic Net)
+# ------------------------------------------------------------------------------
+cat("\n--- Modelo Ridge (Alpha = 0: Penalización L2) ---\n")
+ridge_model_cv <- cv.glmnet(X_train, Y_train, alpha = 0,
+  family = "gaussian"
+)
+plot(ridge_model_cv)
+print(paste("Mejor lambda para Ridge:", round(ridge_model_cv$lambda.min, 4)))
+cat("Coeficientes del Modelo Ridge (lambda.min):\n")
+print(coef(ridge_model_cv, s = "lambda.min"))
+cat(paste("El 'lambda.min' óptimo para Ridge es",
+  round(ridge_model_cv$lambda.min, 4),
+  ". Se observa cómo los coeficientes se han reducido en magnitud \n"
+))
+cat("en comparación con el modelo LM básico, pero ninguno se ha \n")
+cat("anulado. La penalización L2 de Ridge es útil para manejar la \n")
+cat("multicolinealidad sin eliminar variables.\n")
+
+
+cat("\n--- Modelo Lasso (Alpha = 1: Penalización L1) ---\n")
+lasso_model_cv <- cv.glmnet(X_train, Y_train, alpha = 1,
+  family = "gaussian"
+)
+plot(lasso_model_cv)
+print(paste("Mejor lambda para Lasso:", round(lasso_model_cv$lambda.min, 4)))
+cat("Coeficientes del Modelo Lasso (lambda.min):\n")
+print(coef(lasso_model_cv, s = "lambda.min"))
+cat(paste("El 'lambda.min' óptimo para Lasso es",
+  round(lasso_model_cv$lambda.min, 4),
+  ". Los coeficientes son similares a los del modelo lineal \n"
+))
+cat("básico, y se observa que no ha puesto ningún coeficiente a \n")
+cat("cero, lo que indica que todas las variables son consideradas \n")
+cat("relevantes por Lasso para este 'lambda.min'. Esto puede \n")
+cat("deberse a que las variables son todas influyentes o que el \n")
+cat("dataset no es lo suficientemente grande como para que Lasso \n")
+cat("las elimine por completo con esta configuración.\n")
+
+
+cat("\n--- Modelo Elastic Net (Alpha = 0.5: Combinación L1 y L2) ---\n")
+elastic_net_model_cv <- cv.glmnet(X_train, Y_train, alpha = 0.5,
+  family = "gaussian"
+)
+plot(elastic_net_model_cv)
+print(paste("Mejor lambda para Elastic Net (alpha=0.5):",
+  round(elastic_net_model_cv$lambda.min, 4)
+))
+cat("Coeficientes del Modelo Elastic Net (lambda.min):\n")
+print(coef(elastic_net_model_cv, s = "lambda.min"))
+cat(paste("El 'lambda.min' óptimo para Elastic Net es",
+  round(elastic_net_model_cv$lambda.min, 4),
+  ". Los coeficientes son similares a los del modelo lineal \n"
+))
+cat("básico y, al igual que Lasso en este caso, no se observa que \n")
+cat("haya puesto ningún coeficiente a cero. Esto sugiere que para \n")
+cat("este 'lambda.min', todas las variables son consideradas \n")
+cat("relevantes por Elastic Net, mostrando una combinación de la \n")
+cat("contracción de Ridge y la selección de variables de Lasso, \n")
+cat("aunque sin eliminar ninguna en este caso.\n")
+
+# ------------------------------------------------------------------------------
+
+## 8. Evaluación y Selección del Mejor Modelo (RMSE en Conjunto de Prueba)
+# ------------------------------------------------------------------------------
+
+calculate_rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2))
+}
+
+cat("\n--- Cálculo del RMSE en el Conjunto de Prueba ---\n")
+
+# Se aplica la función exponencial (exp()) a las predicciones dado que están
+# en escala logarítmica
+
+# 1. RMSE para el Modelo Lineal Básico (lm)
+predictions_lm_test_log <- predict(linear_model_base,
+  newdata = test_data
+)
+predictions_lm_test_original_scale <- exp(predictions_lm_test_log)
+rmse_lm <- calculate_rmse(test_data$Salario,
+  predictions_lm_test_original_scale
+)
+cat(paste("RMSE Modelo LM Básico (escala original):", round(rmse_lm, 2), "\n"))
+
+# 2. RMSE para el Modelo Ridge
+predictions_ridge_test_log <- predict(ridge_model_cv,
+  newx = X_test,
+  s = "lambda.min"
+)
+predictions_ridge_test_original_scale <- exp(predictions_ridge_test_log)
+rmse_ridge <- calculate_rmse(test_data$Salario,
+  predictions_ridge_test_original_scale
+)
+cat(paste("RMSE Modelo Ridge (escala original):", round(rmse_ridge, 2), "\n"))
+
+# 3. RMSE para el Modelo Lasso
+predictions_lasso_test_log <- predict(lasso_model_cv,
+  newx = X_test,
+  s = "lambda.min"
+)
+predictions_lasso_test_original_scale <- exp(predictions_lasso_test_log)
+rmse_lasso <- calculate_rmse(test_data$Salario,
+  predictions_lasso_test_original_scale
+)
+cat(paste("RMSE Modelo Lasso (escala original):", round(rmse_lasso, 2), "\n"))
+
+# 4. RMSE para el Modelo Elastic Net
+predictions_elastic_net_test_log <- predict(elastic_net_model_cv,
+  newx = X_test,
+  s = "lambda.min"
+)
+predictions_elastic_net_test_original_scale <- exp(
+  predictions_elastic_net_test_log
+)
+rmse_elastic_net <- calculate_rmse(test_data$Salario,
+  predictions_elastic_net_test_original_scale
+)
+cat(paste("RMSE Modelo Elastic Net (alpha=0.5, escala original):",
+  round(rmse_elastic_net, 2), "\n"
+))
+
+# --- Conclusión sobre el Mejor Modelo ---
+rmse_values <- c(
+  "LM Básico" = rmse_lm,
+  "Ridge" = rmse_ridge,
+  "Lasso" = rmse_lasso,
+  "Elastic Net" = rmse_elastic_net
+)
+
+best_model_name <- names(which.min(rmse_values))
+min_rmse <- min(rmse_values)
+
+cat(paste("\nEL MEJOR MODELO A ELEGIR (según el menor RMSE en el conjunto \n"))
+cat(paste("de prueba) es:", best_model_name, "con un RMSE de:",
+  round(min_rmse, 2), ".\n"
+))
+cat(paste("Los resultados muestran que el Modelo", best_model_name,
+  "obtuvo el RMSE más bajo (", round(min_rmse, 2),
+  ") en el conjunto de prueba, indicando que es el modelo más \n"
+))
+cat(paste("preciso para predecir salarios en datos no vistos en este \n"))
+cat(paste("caso. Superó ligeramente al modelo lineal básico y a los \n"))
+cat(paste("modelos Lasso y Elastic Net. Esto sugiere que para este \n"))
+cat(paste("dataset, la penalización L2 de Ridge (al ser el mejor modelo) \n"))
+cat(paste("fue más efectiva para mejorar la generalización, \n"))
+cat(paste("posiblemente al manejar mejor la multicolinealidad entre las \n"))
+cat(paste("variables de experiencia ('Años_Doctorado', 'Años_Servicio') \n"))
+cat("y la no linealidad inherente de los datos salariales.\n")
+
+# ------------------------------------------------------------------------------
+
+## 9. Análisis de Supuestos de Regresión y Diagnósticos
+# ------------------------------------------------------------------------------
+### 9.1. Verificación de Normalidad de Salarios por Sexo (Pruebas Paramétricas)
+# ------------------------------------------------------------------------------
+cat("\n--- Verificación de Normalidad de Salarios por Sexo \n")
+cat("(Pruebas Paramétricas) ---\n")
+
+# Prueba de Shapiro-Wilk por Hombres
+salaries_hombre <- salaries_df %>%
+  filter(Sexo == "Hombre") %>%
+  pull(Salario)
+hist(salaries_hombre,
+  main = "Histograma de Salarios - Hombres",
+  xlab = "Salario", col = "skyblue", border = "black"
+)
+shapiro_hombre <- shapiro.test(salaries_hombre)
+cat("\n Prueba de Shapiro-Wilk para Salarios (Hombres) \n")
+print(shapiro_hombre)
+
+if (shapiro_hombre$p.value < 0.05) {
+  cat("  -> El p-valor (", formatC(shapiro_hombre$p.value,
+    format = "e",
+    digits = 3
+  ), ") es muy bajo. Se rechaza la normalidad de los salarios \n")
+  cat("para hombres.\n")
+} else {
+  cat("  -> El p-valor es alto. No hay evidencia para rechazar la \n")
+  cat("normalidad de los salarios para hombres.\n")
+}
+cat(paste("El p-valor (", formatC(shapiro_hombre$p.value,
+  format = "e",
+  digits = 3
+), ") es muy bajo, lo que sugiere que la distribución de salarios \n"))
+cat("para hombres se desvía de la normalidad.\n")
+
+# Prueba de Shapiro-Wilk por Mujeres
+salaries_mujer <- salaries_df %>%
+  filter(Sexo == "Mujer") %>%
+  pull(Salario)
+hist(salaries_mujer,
+  main = "Histograma de Salarios - Mujeres",
+  xlab = "Salario", col = "salmon", border = "black"
+)
+shapiro_mujer <- shapiro.test(salaries_mujer)
+cat("\n Prueba de Shapiro-Wilk para Salarios (Mujeres) \n")
+print(shapiro_mujer)
+
+if (shapiro_mujer$p.value < 0.05) {
+  cat("  -> El p-valor (", round(shapiro_mujer$p.value, 4),
+    ") es bajo. Se rechaza la normalidad de los salarios para \n"
+  )
+  cat("mujeres.\n")
+} else {
+  cat("  -> El p-valor (", round(shapiro_mujer$p.value, 4),
+    ") es alto. No hay evidencia para rechazar la normalidad \n"
+  )
+  cat("de los salarios para mujeres.\n")
+}
+
+cat(paste("Para los salarios de mujeres, el p-valor (",
+  round(shapiro_mujer$p.value, 4), ") es alto. Por lo tanto, \n"
+))
+cat("no hay evidencia suficiente para rechazar la hipótesis de que \n")
+cat("los salarios de mujeres siguen una distribución normal en este \n")
+cat("caso.\n")
+
+
+### 9.2. Verificación de Homogeneidad de Varianzas (Levene's Test)
+# ------------------------------------------------------------------------------
+cat("\n--- Verificación de Homogeneidad de Varianzas (Levene's Test: \n")
+cat("Salario ~ Sexo) ---\n")
+levene_test <- leveneTest(Salario ~ Sexo, data = salaries_df)
+print(levene_test)
+if (levene_test$`Pr(>F)`[1] < 0.05) {
+  cat("  -> El p-valor (", round(levene_test$`Pr(>F)`[1], 4),
+    ") es bajo. Se rechaza la homogeneidad de varianzas, \n"
+  )
+  cat("sugiriendo heterocedasticidad.\n")
+  var_equal_assumption <- FALSE
+} else {
+  cat("  -> El p-valor (", round(levene_test$`Pr(>F)`[1], 4),
+    ") es alto. No hay evidencia para rechazar la \n"
+  )
+  cat("homogeneidad de varianzas.\n")
+  var_equal_assumption <- TRUE
+}
+
+cat(paste("El p-valor (", round(levene_test$`Pr(>F)`[1], 4),
+  ") es alto, lo que indica que las varianzas de los salarios \n"
+))
+cat("SÍ son iguales entre hombres y mujeres (homocedasticidad) \n")
+cat("según esta prueba. Esto significa que la asunción de varianzas \n")
+cat("iguales para el t-test no se rechaza.\n")
+
+
+### 9.3. T-Test de Student para Muestras Independientes (Salario vs. Sexo)
+# ------------------------------------------------------------------------------
+
+cat("\n--- Realizando el T-Test de Student para Muestras \n")
+cat("Independientes (Salario vs. Sexo) ---\n")
+if (var_equal_assumption) {
+  t_test_result <- t.test(Salario ~ Sexo, data = salaries_df,
+    var.equal = TRUE
+  )
+  cat("T-Test de Student (asumiendo varianzas iguales):\n")
+} else {
+  cat("T-Test de Welch (no asumiendo varianzas iguales):\n")
+}
+print(t_test_result)
+
+
+if (t_test_result$p.value < 0.05) {
+  cat("\n--- Conclusión del T-Test ---\n")
+  cat("El p-valor (", round(t_test_result$p.value, 4), ") es menor \n")
+  cat("que 0.05. \n")
+  cat("Por lo tanto, rechazamos la hipótesis nula y concluimos que \n")
+  cat("existe una diferencia estadísticamente significativa en las \n")
+  cat("medias de salarios entre hombres y mujeres.\n")
+} else {
+  cat("\n--- Conclusión del T-Test ---\n")
+  cat("El p-valor (", round(t_test_result$p.value, 4), ") es mayor \n")
+  cat("que 0.05. \n")
+  cat("Por lo tanto, no tenemos evidencia suficiente para rechazar \n")
+  cat("la hipótesis nula, lo que sugiere que no hay una diferencia \n")
+  cat("estadísticamente significativa en las medias de salarios \n")
+  cat("entre hombres y mujeres.\n")
+}
+cat(paste("El p-valor del t-test es ", round(t_test_result$p.value, 4),
+  ", que es menor que 0.05. Esto confirma la observación visual \n"
+))
+cat("de los boxplots y la prueba ANOVA: hay una diferencia salarial \n")
+cat("significativa entre hombres y mujeres en el dataset.\n")
+
+
+### 9.4. Análisis de Normalidad de los Residuos del Modelo (LM y Ridge como ejemplo)
+# ------------------------------------------------------------------------------
+
+# Los residuos se calculan a partir de los modelos que predicen 'log_Salario'
+residuos_lm <- residuals(linear_model_base)
+
+# Se calculan las predicciones del modelo Ridge en el conjunto de
+# entrenamiento para obtener sus residuos. Obteniendo predicciones en
+# escala logarítmica.
+predicciones_ridge_train_log <- predict(ridge_model_cv,
+  newx = X_train,
+  s = "lambda.min", type = "response"
+)
+residuos_ridge <- Y_train - predicciones_ridge_train_log
+
+# Histogramas de Residuos con curva de densidad
+# Modelo Lineal
+hist(residuos_lm,
+  main = "Histograma de Residuos (Modelo LM)",
+  xlab = "Residuos",
+  border = "black",
+  col = "lightgreen",
+  freq = FALSE
+)
+lines(density(residuos_lm), col = "red", lwd = 2)
+cat("Los histogramas no muestran una forma de campana perfectamente simétrica, lo \n")
+cat("que ya sugiere desviaciones de la normalidad en los residuos para ambos modelos.\n")
+
+# Modelo Ridge
+hist(residuos_ridge,
+  main = "Histograma de Residuos (Modelo Ridge)",
+  xlab = "Residuos",
+  border = "black",
+  col = "lightblue",
+  freq = FALSE
+)
+lines(density(residuos_ridge), col = "blue", lwd = 2)
+cat("Los histogramas no muestran una forma de campana perfectamente simétrica, \n")
+cat("lo que ya sugiere desviaciones de la normalidad en los residuos \n")
+cat("para ambos modelos.\n")
+
+# Gráficos Q-Q de Residuos
+# Modelo Lineal
+qqnorm(residuos_lm,
+  main = "Gráfico Q-Q de Residuos (Modelo LM)",
+  xlab = "Cuantiles Teóricos Normales",
+  ylab = "Cuantiles de Residuos"
+)
+qqline(residuos_lm, col = "red", lwd = 2)
+cat("Los puntos en el gráfico Q-Q del modelo LM se desvían \n")
+cat("notablemente de la línea de referencia, especialmente en las \n")
+cat("colas, lo que confirma la no normalidad de los residuos.\n")
+
+#.Modelo Ridge
+qqnorm(residuos_ridge,
+  main = "Gráfico Q-Q de Residuos (Modelo Ridge)",
+  xlab = "Cuantiles Teóricos Normales",
+  ylab = "Cuantiles de Residuos"
+)
+qqline(residuos_ridge, col = "blue", lwd = 2)
+cat("De manera similar, los puntos en el gráfico Q-Q del modelo \n")
+cat("Ridge también se desvían de la línea, indicando la no \n")
+cat("normalidad de sus residuos.\n")
+
+# Prueba de Shapiro-Wilk para Residuos
+
+# Residuos LM
+shapiro_lm <- shapiro.test(as.numeric(residuos_lm))
+cat("\n--- Prueba de Shapiro-Wilk para Residuos (Modelo LM) ---\n")
+print(shapiro_lm)
+
+if (shapiro_lm$p.value < 0.05) {
+  cat("  -> El p-valor (", shapiro_lm$p.value, ") es muy bajo. Se \n")
+  cat("rechaza la hipótesis de normalidad de los residuos para el \n")
+  cat("Modelo LM.\n")
+} else {
+  cat("  -> El p-valor (", shapiro_lm$p.value, ") es alto. No hay evidencia para rechazar la \n")
+  cat("normalidad de los residuos para el Modelo LM.\n")
+}
+shapiro_ridge <- shapiro.test(as.numeric(residuos_ridge))
+cat("Las pruebas de Shapiro-Wilk para el Modelo LM (p-valor = ", round(shapiro_lm$p.value, 4), ") \n")
+cat("no muestran evidencia para rechazar la normalidad de sus residuos. \n")
+cat("Para el Modelo Ridge (p-valor = ", round(shapiro_ridge$p.value, 4), "), \n")
+cat("tampoco hay evidencia para rechazar la normalidad de sus residuos al nivel de 0.05. \n")
+cat("Aunque los histogramas y gráficos Q-Q pueden sugerir algunas desviaciones visuales, \n")
+cat("las pruebas estadísticas para ambos modelos no rechazan la hipótesis de normalidad. \n")
+
+
+# Residuos Modelo Ridge
+shapiro_ridge <- shapiro.test(as.numeric(residuos_ridge))
+cat("\n--- Prueba de Shapiro-Wilk para Residuos (Modelo Ridge) ---\n")
+print(shapiro_ridge)
+
+if (shapiro_ridge$p.value < 0.05) {
+  cat("  -> El p-valor (", shapiro_ridge$p.value, ") es muy bajo. \n")
+  cat("Se rechaza la hipótesis de normalidad de los residuos para el \n")
+  cat("Modelo Ridge.\n")
+} else {
+  cat("  -> El p-valor (", shapiro_ridge$p.value, ") es alto. No hay evidencia para rechazar la \n")
+  cat("normalidad de los residuos para el Modelo Ridge.\n")
+}
+
+
+cat("Las pruebas de Shapiro-Wilk para ambos modelos (LM y Ridge) \n")
+cat("muestran p-valores (LM: ", round(shapiro_lm$p.value, 4), "; Ridge: ", round(shapiro_ridge$p.value, 4), ") \n")
+cat("que son superiores a 0.05. Esto significa que no hay evidencia estadística para rechazar \n")
+cat("la hipótesis de normalidad de los residuos para ninguno de los dos modelos. \n")
+cat("Aunque los histogramas y gráficos Q-Q pueden sugerir algunas desviaciones visuales, \n")
+cat("las pruebas estadísticas formales no confirman la no normalidad. \n")
+
+
+# ==============================================================================
+# CONCLUSIONES FINALES Y EVALUACIÓN DEL MODELO
+# ==============================================================================
+
+### 1. Conclusiones del Análisis Exploratorio y de Inferencia
+
+# - Factores Influyentes en el Salario: El análisis revela que el rango académico del profesor, la disciplina a la que pertenece, y los años de experiencia transcurridos desde la obtención del doctorado, junto con los años de servicio en la institución, son variables significativamente relacionadas con el nivel salarial.
+# - Impacto del Rango Académico: Se observa una clara progresión salarial con el aumento del rango. Los Catedráticos consistentemente presentan los salarios promedio más elevados, con una mayor variabilidad en sus ingresos.
+# - Diferencias por Disciplina: La Disciplina 'B' exhibe un salario mediano ligeramente superior y una distribución que tiende a valores más altos en comparación con la Disciplina 'A'.
+# - Correlación entre Experiencia y Salario: Las variables numéricas 'Años_Doctorado' y 'Años_Servicio' muestran una correlación positiva moderada con el salario, lo que indica que una mayor experiencia generalmente se asocia con salarios más altos.
+#   - Consideración de Multicolinealidad: Se identifica una fuerte correlación entre 'Años_Doctorado' y 'Años_Servicio' (confirmado por valores VIF elevados). Esta multicolinealidad sugiere una relación lineal significativa entre estos predictores, lo cual puede influir en la estabilidad y la interpretación de los coeficientes en un modelo lineal simple.
+# - Disparidad Salarial por Género: Un Análisis Multivariado:
+#   - Un análisis univariado (t-test/ANOVA simple) inicialmente indicó una diferencia salarial estadísticamente significativa por sexo, con salarios medianos más altos para los hombres.
+#   - Sin embargo, al incorporar estas variables en un Modelo Lineal Múltiple (LM) que controla por otros factores (rango, disciplina, años de experiencia), la variable 'Sexo' no resultó ser un predictor estadísticamente significativo (p = 0.24647). Esto sugiere que la brecha salarial observada podría estar más asociada a la distribución diferencial de hombres y mujeres en rangos académicos y disciplinas de mayor remuneración/experiencia, que a un efecto directo del sexo per se.
+# - Normalidad de la Distribución Salarial por Sexo:
+#   - La prueba de Shapiro-Wilk para los salarios de hombres (p-valor = 1.735e-08) indicó una desviación significativa de la normalidad.
+#   - Para los salarios de mujeres, el p-valor (0.0634) no proporcionó evidencia suficiente para rechazar la hipótesis de normalidad.
+# - Homogeneidad de Varianzas Salariales por Sexo:
+#   - El test de Levene (p-valor = 0.3599) sugirió que las varianzas de los salarios son homogéneas (homocedasticidad) entre los grupos de hombres y mujeres. Al no rechazar la hipótesis nula, se valida la asunción de varianzas iguales para pruebas paramétricas como el t-test.
+
+### 2. Conclusiones sobre la Implementación del Modelo
+
+# - Modelos Evaluados: Se han construido y comparado un Modelo Lineal Múltiple Básico (LM) y modelos de regresión regularizada (Ridge, Lasso, Elastic Net) para la predicción salarial.
+# - Transformación Logarítmica de la Variable Dependiente: Se aplicó una transformación logarítmica al 'Salario' (`log_Salario`) para mejorar la linealidad de las relaciones y la normalidad de los residuos, calculando el RMSE final en la escala original tras aplicar la función exponencial a las predicciones.
+# - Selección del Modelo Óptimo: Regresión Ridge: El Modelo Ridge demostró el mejor rendimiento predictivo en el conjunto de prueba, obteniendo el menor Error Cuadrático Medio (RMSE) de 25850 unidades monetarias. Este resultado sugiere que la penalización L2 inherente a Ridge fue efectiva para mejorar la generalización del modelo, probablemente al mitigar los efectos de la multicolinealidad.
+# - Efecto de la Regularización en los Coeficientes:
+#   - Ridge (Penalización L2): Los coeficientes del modelo Ridge mostraron una reducción en su magnitud en comparación con el modelo LM básico, pero ninguno fue forzado a cero. Esta característica es beneficiosa para manejar la multicolinealidad sin eliminar predictores.
+#   - Lasso (Penalización L1): Para el `lambda.min` óptimo, los coeficientes de Lasso fueron muy similares a los del modelo lineal básico y no se anularon. Esto indica que Lasso consideró todas las variables como relevantes para este conjunto de datos y configuración específica.
+#   - Elastic Net (Combinación L1 y L2): Similar a Lasso, Elastic Net no eliminó ninguna variable para su `lambda.min` óptimo, lo que refleja una combinación de la contracción de Ridge y la capacidad de selección de variables de Lasso, aunque sin aplicar esta última en este caso.
+# - Normalidad de los Residuos del Modelo:
+#   - Las pruebas de Shapiro-Wilk para el Modelo LM (p-valor = 0.2653) y para el Modelo Ridge (p-valor = 0.0595) no proporcionaron evidencia estadística para rechazar la hipótesis de normalidad de los residuos al nivel de significancia del 0.05.
+#   - A pesar de que los histogramas y gráficos Q-Q pueden sugerir algunas desviaciones visuales, las pruebas formales no confirman la no normalidad.
+
+
+### 3. Consideraciones sobre el Rendimiento del Modelo
+
+# - Rendimiento Inicial Sólido: Un RMSE de 25850 se considera un punto de partida adecuado para la predicción de salarios en este contexto. Este valor representa la magnitud promedio del error de predicción en la escala original del salario, que podría ser considerada alta en aplicaciones que demanden una precisión extremadamente elevada.
+# - Enfoque en la Capacidad Predictiva: El Modelo Ridge se posiciona como un modelo robusto para la predicción de salarios, demostrando un rendimiento razonable y una adecuada gestión de los desafíos inherentes a los datos, como la multicolinealidad.
