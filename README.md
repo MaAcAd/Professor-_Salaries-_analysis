@@ -10,7 +10,7 @@ salaries.csv: El conjunto de datos original utilizado.
 
 analisis_salarios.Rmd: El archivo R Markdown que contiene todo el código R, los comentarios y la narrativa del análisis. Es el documento principal que puedes ejecutar para reproducir el informe.
 
-analisis_salarios.R
+analisis_salarios.R: El archivo R con todo el código, los comentarios y la narrativa del análisis. Es el documento principal que puedes ejecutar para reproducir el informe.
 
 informe_salarios.pdf: La versión compilada del R Markdown. Es un informe en formato PDF que resume las conclusiones y visualizaciones clave del análisis.
 
