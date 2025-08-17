@@ -16,7 +16,7 @@ library(tidyr)
 library(glmnet) 
 
 # Carga de datos
-salaries_df <- read_csv("data/salaries.csv", show_col_types = FALSE)
+salaries_df <- read_csv("data/salaries.csv", show_col_types = FALSE) 
 
 # 2. Preprocesamiento de Datos
 # ------------------------------------------------------------------------------
