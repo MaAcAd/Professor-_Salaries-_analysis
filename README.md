@@ -14,6 +14,8 @@ analisis_salarios.R: El archivo R con todo el código, los comentarios y la narr
 
 informe_salarios.pdf: La versión compilada del R Markdown. Es un informe en formato PDF que resume las conclusiones y visualizaciones clave del análisis.
 
+salaries_ridge.app.r: Dashboard Interactivo de Salarios de Profesores (- Modelo Ridge -)
+
 README.md: Este documento, que describe el proyecto y su contenido.
 
 🌐 Fuente de los datos
